@@ -20,6 +20,12 @@ type Packet struct {
     Length          int
 }
 
+func CreateNewPacket(LOG *log.Logger) *Packet {
+    p := new(Packet)
+    p.LOG = LOG
+    return p
+}
+
 func ConstructPacket(rawData []byte, sessionId uint32, LOG *log.Logger) *Packet {
     p := new(Packet)
     p.LOG = LOG

@@ -5,6 +5,7 @@ import (
     "packet"
     "sync"
     "net"
+    "utils"
 )
 
 type TcpTunnel struct {
@@ -24,6 +25,8 @@ type TcpTunnel struct {
 }
 
 func CreateNewClientTunnel(id uint32, OnDataF func(*packet.Packet) int, LOG *log.Logger) *TcpTunnel {
+    //LOG.Println("CreateNewClientTunnel")
+
     tt := new(TcpTunnel)
     tt.id = id
     tt.send = make(chan []byte)
@@ -53,6 +56,7 @@ func CreateNewServerTunnel(id uint32, OnDataF func(*packet.Packet) int, conn *ne
 }
 
 func (tt *TcpTunnel)connectToRemote() bool {
+    //tt.LOG.Println("tcptunnel connectToRemote")
 	conn, err := net.Dial("tcp", "localhost:9001")
 	if err != nil {
 		log.Println("connectToRemote", err)
@@ -68,27 +72,59 @@ func (tt *TcpTunnel)SendPacket(p *packet.Packet) {
 
 func (tt *TcpTunnel)recvData() {
     for {
-		//log.Println("udptunnel tunnelReadFromClientProxy")
-		data := make([]byte, 4096)
-		_, err := (*tt.C).Read(data)
-		//log.Println("after read", n)
-		if err != nil {
-			return
-		}
-		//log.Println("data len", n)
-		//go tt.readPacketFromClientProxy(data[:n])
+		data := make([]byte, 6)
+        headerDataIndex := 0
+        for {
+            n, err := (*tt.C).Read(data[headerDataIndex:])
+            if err != nil {
+                return
+            } 
+            if n < 6 - headerDataIndex {
+                headerDataIndex += n
+            } else {
+                break
+            }
+        }
+		
+        
+        //tt.LOG.Println("tcptunnel recvData header len:", n)
+        sessionId := utils.BytesToUint32(data[:4])
+        len := utils.BytesToInt16(data[4:6])     
+		
+        realData := make([]byte, len)
+        realDataIndex := 0
+        for {
+            n, err := (*tt.C).Read(realData[realDataIndex:])
+            if err != nil {
+                tt.LOG.Println("tcptunnel recvData error:", err)
+                return
+            }
+            if n < len - realDataIndex {
+                realDataIndex += n;
+            } else {
+                break
+            }
+        }
+        p := packet.CreateNewPacket(tt.LOG)
+        p.SessionId = sessionId
+        p.RawData = realData
+		go tt.OnDataF(p)
 	}
 }
 
 func (tt *TcpTunnel)sendData() {
     for {
-		//log.Println("udptunnel tunnelWrite")
+		//tt.LOG.Println("sendData")
 		data, ok := <-tt.send
+        //tt.LOG.Println("sendData len:", len(data))
 		if !ok {
+            tt.LOG.Println("tcptunnel sendData error:", ok)
 			break
 		}
-		//log.Println("connWrite", string(data))
-		(*tt.C).Write(data)
+		length, err := (*tt.C).Write(data)
+        if !err {
+            
+        }
 	}
 }
 

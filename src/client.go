@@ -23,7 +23,9 @@ func releaseSession(id uint32, flag bool) {
 }
 
 func allocTunnelId() uint32 {
+    LOG.Println("client allocTunnelId")
     TunnelIdAllocLock.Lock()
+    defer TunnelIdAllocLock.Unlock()
     var id uint32
     for k, v := range idTunnelMap {
         id = k
@@ -38,18 +40,19 @@ func allocTunnelId() uint32 {
         idTunnelMap[id] = tt
     } else {
         LOG.Println("tunnel connect error")
-    }
-    TunnelIdAllocLock.Unlock()
+    } 
     return id
 }
 
 func onData(p *packet.Packet) int {
+    LOG.Println("client onData")
     s, ok := idSessionMap[p.SessionId]
 	if !ok {
 		return -1
 	}
 	if (p.Length == 0) {
 		releaseSession(s.GetId(), false)
+        return 0
 	}
     
     s.Slock.Lock()
@@ -59,6 +62,7 @@ func onData(p *packet.Packet) int {
 }
 
 func processWrite(s *session.Session, data []byte) {
+    LOG.Println("client processWrite")
     conn := *s.C
 	id := s.GetId()
 	index := 0
@@ -79,12 +83,13 @@ func processWrite(s *session.Session, data []byte) {
 }
 
 func processRead(s *session.Session) {
+    LOG.Println("client processRead")
     conn := *s.C
 	id := s.GetId()
     tunnelId := s.GetTunnelId()
     tt := idTunnelMap[tunnelId]
 	for {
-		/////////////////////////////////////////////////
+        
 		buf := make([]byte, 4096)
 		length, err := conn.Read(buf[96:])
 		if err != nil {
@@ -92,7 +97,6 @@ func processRead(s *session.Session) {
 			releaseSession(id, true)
 			break
 		}
-		/////////////////////////////////////////////////
 		
         p := packet.ConstructPacket(buf[:length + 96], id, LOG)  
         tt.SendPacket(p)
@@ -102,16 +106,19 @@ func processRead(s *session.Session) {
 
 
 func processNewAcceptedConn(conn net.Conn) *session.Session {
+    LOG.Println("client processNewAcceptedConn")
     s := session.CreateNewSession(sessionCount, LOG)
-    
+    s.C = &conn;
     // 分配tcptunnel
     s.SetTunnelId(allocTunnelId())
     
+    idSessionMap[sessionCount] = s
     sessionCount++
     return s
 }
 
 func initListen() {
+    LOG.Println("initListen")
     // create listener
 	listener, err := net.Listen("tcp", "0.0.0.0:9000")
 	if err != nil {
@@ -124,6 +131,7 @@ func initListen() {
 		if err != nil {
 			return
 		}
+        LOG.Println("Accept")
 		s := processNewAcceptedConn(conn)
 		// load balance, then process conn
 		go processRead(s)
@@ -136,7 +144,6 @@ func Run() {
 
 func main() {
 	//tcpServer.TcpServer()
-	log.Println("client");
     fileName := "client_debug.log"
     logFile,err  := os.Create(fileName)
     defer logFile.Close()
@@ -144,6 +151,8 @@ func main() {
         LOG.Fatalln("open file error !")
     }
     LOG = log.New(logFile,"[Debug]",log.Llongfile)
+    
+    LOG.Println("client")
     
     sessionCount = 0
     
