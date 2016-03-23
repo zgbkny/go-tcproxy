@@ -6,6 +6,9 @@ import (
     "net"
 )
 
+var sessionIdCount uint32
+var SessionIdCountLock *sync.Mutex
+
 type Session struct {
     LOG             *log.Logger
 	id				uint32
@@ -16,13 +19,31 @@ type Session struct {
     C				*net.Conn
 }
 
+func Init() {
+    SessionIdCountLock = new(sync.Mutex)
+    sessionIdCount = 0
+}
 
-func CreateNewSession(sessionId uint32, LOG *log.Logger) *Session {
+
+func CreateNewSession(LOG *log.Logger) *Session {
+    s := new(Session)
+    s.LOG = LOG
+    
+    SessionIdCountLock.Lock()
+    s.id = sessionIdCount
+    sessionIdCount++
+    SessionIdCountLock.Unlock()
+    
+    s.Slock = new(sync.Mutex)
+    return s
+}
+
+
+func CreateNewSessionWithId(sessionId uint32, LOG *log.Logger) *Session {
     s := new(Session)
     s.LOG = LOG
     s.id = sessionId
     s.Slock = new(sync.Mutex)
-    
     return s
 }
 

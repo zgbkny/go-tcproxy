@@ -8,6 +8,9 @@ import (
     "utils"
 )
 
+var tunnelIdCount uint32
+var tunnelIdCountLock *sync.Mutex
+
 type TcpTunnel struct {
     LOG                 *log.Logger
     
@@ -24,11 +27,21 @@ type TcpTunnel struct {
     C                   *net.Conn
 }
 
-func CreateNewClientTunnel(id uint32, OnDataF func(*packet.Packet) int, LOG *log.Logger) *TcpTunnel {
+func Init() {
+    tunnelIdCountLock = new(sync.Mutex)
+    tunnelIdCount = 0
+}
+
+func CreateNewClientTunnel(OnDataF func(*packet.Packet) int, LOG *log.Logger) *TcpTunnel {
     //LOG.Println("CreateNewClientTunnel")
 
     tt := new(TcpTunnel)
-    tt.id = id
+    
+    tunnelIdCountLock.Lock()
+    tt.id = tunnelIdCount
+    tunnelIdCount++
+    tunnelIdCountLock.Unlock()
+    
     tt.send = make(chan []byte)
     tt.lock = new(sync.Mutex)
     tt.OnDataF = OnDataF
@@ -42,9 +55,14 @@ func CreateNewClientTunnel(id uint32, OnDataF func(*packet.Packet) int, LOG *log
     return tt
 }
 
-func CreateNewServerTunnel(id uint32, OnDataF func(*packet.Packet) int, conn *net.Conn, LOG *log.Logger) *TcpTunnel {
+func CreateNewServerTunnel(OnDataF func(*packet.Packet) int, conn *net.Conn, LOG *log.Logger) *TcpTunnel {
     tt := new(TcpTunnel)
-    tt.id = id
+    
+    tunnelIdCountLock.Lock()
+    tt.id = tunnelIdCount
+    tunnelIdCount++
+    tunnelIdCountLock.Unlock()
+    
     tt.send = make(chan []byte)
     tt.lock = new(sync.Mutex)
     tt.OnDataF = OnDataF
@@ -53,6 +71,10 @@ func CreateNewServerTunnel(id uint32, OnDataF func(*packet.Packet) int, conn *ne
     go tt.recvData()
     go tt.sendData()
     return tt
+}
+
+func (tt *TcpTunnel)GetId() uint32 {
+    return tt.id
 }
 
 func (tt *TcpTunnel)connectToRemote() bool {
@@ -108,6 +130,7 @@ func (tt *TcpTunnel)recvData() {
         p := packet.CreateNewPacket(tt.LOG)
         p.SessionId = sessionId
         p.RawData = realData
+        p.Length = len
 		go tt.OnDataF(p)
 	}
 }
@@ -122,8 +145,8 @@ func (tt *TcpTunnel)sendData() {
 			break
 		}
 		length, err := (*tt.C).Write(data)
-        if !err {
-            
+        if err != nil {
+            tt.LOG.Println("", err, length)
         }
 	}
 }

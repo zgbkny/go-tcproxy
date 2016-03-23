@@ -13,18 +13,26 @@ var LOG *log.Logger
 var tunnelCount uint32        // 产生tunnelId
 var idSessionMap map[uint32]*session.Session
 var idTunnelMap map[uint32]*tcptunnel.TcpTunnel
+
+var IdSessionMapLock *sync.Mutex
+var IdTunnelMapLock *sync.Mutex
+
 var TunnelIdAllocLock *sync.Mutex
 var lock *sync.Mutex
 
+
+///////////////////////////////////////////////////////
+
 func getSession(id uint32) *session.Session {
 	LOG.Println("server getSession")
+	
 	s, ok := idSessionMap[id]
 	if !ok {
-		lock.Lock()
-		defer lock.Unlock()
+		IdSessionMapLock.Lock()
+    	defer IdSessionMapLock.Unlock()
 		s, ok = idSessionMap[id]
 		if !ok {
-			s = session.CreateNewSession(id, LOG)
+			s = session.CreateNewSessionWithId(id, LOG)
 			idSessionMap[id] = s
 			ok := connectToServer(s)
 			if !ok {
@@ -32,6 +40,7 @@ func getSession(id uint32) *session.Session {
 				s.Destroy(false)
 				return nil
 			}
+            
 			
 			go processRead(s)
 		}
@@ -39,13 +48,31 @@ func getSession(id uint32) *session.Session {
 	return s
 }
 
-func releaseSession(id uint32, flag bool) {
-    
+func setSession(id uint32, s *session.Session) {
+    IdSessionMapLock.Lock()
+    defer IdSessionMapLock.Unlock()
+    idSessionMap[id] = s
 }
+
+func releaseSession(id uint32, flag bool) {
+    LOG.Println("releaseSession")
+    IdSessionMapLock.Lock()
+    defer IdSessionMapLock.Unlock()
+    s, ok := idSessionMap[id]
+    if !ok {
+        return;
+    }
+    (*s.C).Close()
+    delete(idSessionMap, id)
+}
+
+/////////////////////////////////////////////////////////////////////
+
 
 func connectToServer(s *session.Session) bool {
 	LOG.Println("server connectToServer")
-	conn, err := net.Dial("tcp", "localhost:90")
+	conn, err := net.Dial("tcp", "192.168.80.128:90")
+    LOG.Println("connect info:", conn)
 	if err != nil {
 		log.Println("connect to nginx proxy", err)
 		return false
@@ -57,6 +84,7 @@ func connectToServer(s *session.Session) bool {
 func onData(p *packet.Packet) int {
 	LOG.Println("server onData")
     s := getSession(p.SessionId)
+    
 	if s == nil  {
 		return -1
 	}
@@ -78,10 +106,12 @@ func processWrite(s *session.Session, data []byte) {
 
 	for {
 		length, err := conn.Write(data[index:])
-		
+		LOG.Println("server processWrite data:", string(data[index:]))
+        
 		if err != nil {
+            LOG.Println("server processWrite error:", err)
 			releaseSession(id, true)
-			//return -1
+			break
 		}
 		if length != len(data) {
 			index += length
@@ -89,6 +119,7 @@ func processWrite(s *session.Session, data []byte) {
 			break
 		}
 	}
+    LOG.Println("server processWrite end")
 }
 
 func processRead(s *session.Session) {
@@ -102,23 +133,25 @@ func processRead(s *session.Session) {
 		buf := make([]byte, 4096)
 		length, err := conn.Read(buf[96:])
 		if err != nil {
-			LOG.Println("server read error", err)
+			LOG.Println("server processRead error:", err)
 			releaseSession(id, true)
 			break
 		}
 		/////////////////////////////////////////////////
-		
+		LOG.Println("server processRead data:", string(buf[96:]))
         p := packet.ConstructPacket(buf[:length + 96], id, LOG)  
         tt.SendPacket(p)
 	}
+    emptyBuf := make([]byte, 96)
+    emptyP := packet.ConstructPacket(emptyBuf, id, LOG)
+    tt.SendPacket(emptyP)
 	conn.Close()
 }
 
 func processNewAcceptedConn(c net.Conn) *tcptunnel.TcpTunnel {
 	LOG.Println("processNewAcceptedConn")
-    tt := tcptunnel.CreateNewServerTunnel(tunnelCount, onData, &c, LOG)
-    idTunnelMap[tunnelCount] = tt
-    tunnelCount++
+    tt := tcptunnel.CreateNewServerTunnel(onData, &c, LOG)
+    idTunnelMap[tt.GetId()] = tt
     
     return tt
 }
@@ -162,6 +195,12 @@ func main() {
     idSessionMap = map[uint32]*session.Session{}
     idTunnelMap = map[uint32]*tcptunnel.TcpTunnel{}
 	lock = new(sync.Mutex)
+	
+	IdSessionMapLock = new(sync.Mutex)
+	IdTunnelMapLock = new(sync.Mutex)
+	
+	session.Init()
+    tcptunnel.Init()
     
     initListen()
 }
