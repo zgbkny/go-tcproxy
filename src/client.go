@@ -25,6 +25,8 @@ func getSession(id uint32) (*session.Session, bool) {
     defer IdSessionMapLock.Unlock()
     s, ok := idSessionMap[id]
     
+    LOG.Println("idSessionMap len:", len(idSessionMap))
+    
     return s, ok
 }
 
@@ -35,6 +37,7 @@ func setSession(id uint32, s *session.Session) {
 }
 
 func releaseSession(id uint32, flag bool) {
+    LOG.Println("client releaseSession")
     IdSessionMapLock.Lock()
     defer IdSessionMapLock.Unlock()
     s, ok := idSessionMap[id]
@@ -122,6 +125,7 @@ func onData(p *packet.Packet) int {
 	}
     
 	if (p.Length == 0) {
+        LOG.Println("client recv zero_len packet")
 		releaseSession(s.GetId(), false)
         return 0
 	}
@@ -203,7 +207,7 @@ func Run() {
 }
 
 func main() {
-    fileName := "client_debug.log"
+    fileName := "../client_debug.log"
     logFile,err  := os.Create(fileName)
     defer logFile.Close()
     if err != nil {

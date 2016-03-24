@@ -25,7 +25,7 @@ var lock *sync.Mutex
 
 func getSession(id uint32) *session.Session {
 	LOG.Println("server getSession")
-	
+	LOG.Println("idSessionMap len:", len(idSessionMap))
 	s, ok := idSessionMap[id]
 	if !ok {
 		IdSessionMapLock.Lock()
@@ -71,7 +71,7 @@ func releaseSession(id uint32, flag bool) {
 
 func connectToServer(s *session.Session) bool {
 	LOG.Println("server connectToServer")
-	conn, err := net.Dial("tcp", "192.168.80.128:90")
+	conn, err := net.Dial("tcp", "localhost:90")
     LOG.Println("connect info:", conn)
 	if err != nil {
 		log.Println("connect to nginx proxy", err)
@@ -89,6 +89,7 @@ func onData(p *packet.Packet) int {
 		return -1
 	}
 	if (p.Length == 0) {
+        LOG.Println("server recv zero_len packet")
 		releaseSession(s.GetId(), false)
 	}
     
@@ -106,7 +107,6 @@ func processWrite(s *session.Session, data []byte) {
 
 	for {
 		length, err := conn.Write(data[index:])
-		LOG.Println("server processWrite data:", string(data[index:]))
         
 		if err != nil {
             LOG.Println("server processWrite error:", err)
@@ -138,7 +138,6 @@ func processRead(s *session.Session) {
 			break
 		}
 		/////////////////////////////////////////////////
-		LOG.Println("server processRead data:", string(buf[96:]))
         p := packet.ConstructPacket(buf[:length + 96], id, LOG)  
         tt.SendPacket(p)
 	}
@@ -182,7 +181,7 @@ func main() {
 	//tcpServer.TcpServer()
 	
     
-    fileName := "server_debug.log"
+    fileName := "../server_debug.log"
     logFile,err  := os.Create(fileName)
     defer logFile.Close()
     if err != nil {

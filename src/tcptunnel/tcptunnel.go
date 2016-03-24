@@ -111,26 +111,27 @@ func (tt *TcpTunnel)recvData() {
         
         //tt.LOG.Println("tcptunnel recvData header len:", n)
         sessionId := utils.BytesToUint32(data[:4])
-        len := utils.BytesToInt16(data[4:6])     
-		
-        realData := make([]byte, len)
-        realDataIndex := 0
-        for {
-            n, err := (*tt.C).Read(realData[realDataIndex:])
-            if err != nil {
-                tt.LOG.Println("tcptunnel recvData error:", err)
-                return
-            }
-            if n < len - realDataIndex {
-                realDataIndex += n;
-            } else {
-                break
-            }
-        }
+        len := utils.BytesToInt16(data[4:6])   
         p := packet.CreateNewPacket(tt.LOG)
-        p.SessionId = sessionId
-        p.RawData = realData
+        p.SessionId = sessionId  
         p.Length = len
+		if len != 0 {
+            realData := make([]byte, len)
+            realDataIndex := 0
+            for {
+                n, err := (*tt.C).Read(realData[realDataIndex:])
+                if err != nil {
+                    tt.LOG.Println("tcptunnel recvData error:", err)
+                    return
+                }
+                if n < len - realDataIndex {
+                    realDataIndex += n;
+                } else {
+                    break
+                }
+            } 
+            p.RawData = realData
+        }
 		go tt.OnDataF(p)
 	}
 }
@@ -144,9 +145,19 @@ func (tt *TcpTunnel)sendData() {
             tt.LOG.Println("tcptunnel sendData error:", ok)
 			break
 		}
-		length, err := (*tt.C).Write(data)
-        if err != nil {
-            tt.LOG.Println("", err, length)
+        
+        index := 0
+        for {
+            length, err := (*tt.C).Write(data[index:])
+            if err != nil {
+                tt.LOG.Println("", err, length)
+            }
+            
+            if length + index < len(data) {
+                index += length
+            } else {
+                break
+            }
         }
 	}
 }
